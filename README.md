@@ -1,0 +1,35 @@
+SDX 2 - Onyx Gazelle
+====================
+
+Proof of concept for SDX 2 (codename Onyx Gazelle)
+
+## Get Started
+
+```shell
+$ make
+$ make docker
+```
+
+ - `make` - build binaries for each service
+ - `make docker` - run `docker-compose up --build` to create images based on binaries built with `make`
+
+## Notes
+
+### Completeness
+
+This POC is not designed in _any way to be production ready_ and has (likely) many
+bugs/security issues (though some attempt at developing best practice is made).
+
+### Local Dependencies
+
+Local dependenices (libs written to support this POC) can be found in `/lib`.
+This is done just to keep all the code nicely in a single repo that in itself
+is pretending to be multiple repos.
+
+> _THIS IS NOT THE CORRECT WAY TO DO IT BUT IT'S MINIMAL LIFTING FOR THE POC_
+
+## LICENCE
+
+Copyright (c) 2016 Crown Copyright (Office for National Statistics)
+
+Released under MIT license, see [LICENSE](LICENSE) for details.

@@ -1,0 +1,73 @@
+version: '3'
+services:
+
+  # BACKING SERVICES ============================
+
+  # RabbitMQ
+  rabbit:
+    image: rabbitmq:3-management
+    env_file:
+      - env/rabbit.env
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - sdx2
+
+  # APPLICATION SERVICES ========================
+
+  gateway:
+    build: ./sdx-survey-gateway-service
+    networks:
+      - "sdx2"
+    ports:
+      - "8001:5000"
+    depends_on:
+      - "rabbit"
+      - "store"
+    environment:
+      - "PORT=5000"
+      - "RABBIT_URL=amqp://rabbit:rabbit@rabbit:5672/"
+      - "NOTIFICATION_EXCHANGE=survey_notify"
+      - "STORE_URL=http://store:5000"
+  
+  store:
+    build: ./sdx-store-service
+    networks: 
+      - "sdx2"
+    ports:
+      - "8002:5000"
+    environment:
+      - "PORT=5000"
+  
+  legacy_router:
+    build: ./sdx-legacy-router-service
+    networks:
+      - "sdx2"
+    ports:
+      - "8003:5000"
+    environment:
+      - "PORT=5000"
+      - "RABBIT_URL=amqp://rabbit:rabbit@rabbit:5672/"
+      - "NOTIFICATION_EXCHANGE=survey_notify"
+      - "LEGACY_EXCHANGE=survey_legacy"
+  
+  receipt_sink:
+    build: ./receipt-sink-service
+    networks: 
+      - "sdx2"
+    ports:
+      - "8004:5000"
+    depends_on:
+      - "rabbit"
+      - "gateway"
+    environment:
+      - "PORT=5000"
+      - "RABBIT_URL=amqp://rabbit:rabbit@rabbit:5672/"
+      - "NOTIFICATION_EXCHANGE=survey_notify"
+
+# NETWORKS ======================================
+
+networks:
+  sdx2:
+    driver: bridge
