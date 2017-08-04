@@ -93,6 +93,12 @@ func main() {
 
 	// WEBSERVER
 
+	healthCheckCancel, err := StartHealthChecking()
+	if err != nil {
+		log.Fatalf(`event="Failed to start - can't set health" error="%s"`, err)
+	}
+	defer healthCheckCancel()
+
 	r := mux.NewRouter()
 	r.HandleFunc("/healthcheck", HealthcheckHandler).Methods("GET")
 	http.Handle("/", r)

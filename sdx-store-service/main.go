@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/ONSdigital/sdx-onyx-gazelle/lib/api"
 	"github.com/gorilla/mux"
 )
 
@@ -30,7 +31,7 @@ func StorePostedSurvey(rw http.ResponseWriter, r *http.Request) {
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Printf(`event="Failed to read posted data" error="%v"`, err)
-		writeProblemResponse(HTTPProblemResponse{
+		api.WriteProblemResponse(api.Problem{
 			Title:  "Failed to read posted data",
 			Status: http.StatusBadRequest,
 		}, rw)
@@ -40,7 +41,7 @@ func StorePostedSurvey(rw http.ResponseWriter, r *http.Request) {
 	var survey Survey
 	if err = json.Unmarshal(body, &survey); err != nil {
 		log.Printf(`event="Failed to parse posted data" error="%v"`, err)
-		writeProblemResponse(HTTPProblemResponse{
+		api.WriteProblemResponse(api.Problem{
 			Title:  "Failed to parse posted data",
 			Status: http.StatusBadRequest,
 		}, rw)

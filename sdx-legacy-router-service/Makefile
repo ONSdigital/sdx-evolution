@@ -1,2 +1,3 @@
 build:
+	go test ./...
 	env GOOS=linux go build -o target/main

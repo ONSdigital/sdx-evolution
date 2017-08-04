@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ONSdigital/sdx-onyx-gazelle/lib/api"
 	"github.com/ONSdigital/sdx-onyx-gazelle/lib/rabbit"
 
 	"github.com/gorilla/mux"
@@ -25,8 +26,6 @@ var (
 )
 
 func main() {
-	// var err error
-
 	var port string
 	if port = os.Getenv("PORT"); len(port) == 0 {
 		log.Fatal(`event="Failed to start - Must supply PORT environment variable"`)
@@ -73,7 +72,7 @@ func PostedSurveyHandler(rw http.ResponseWriter, r *http.Request) {
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Printf(`event="Failed to read posted data" error="%v"`, err)
-		writeProblemResponse(HTTPProblemResponse{
+		api.WriteProblemResponse(api.Problem{
 			Title:  "Request body unreadable",
 			Status: http.StatusInternalServerError,
 		}, rw)
@@ -81,7 +80,7 @@ func PostedSurveyHandler(rw http.ResponseWriter, r *http.Request) {
 	}
 	if len(body) == 0 {
 		log.Print(`event="Failed to read posted data" error="Body is empty"`)
-		writeProblemResponse(HTTPProblemResponse{
+		api.WriteProblemResponse(api.Problem{
 			Title:  "Request body empty",
 			Status: http.StatusBadRequest,
 		}, rw)
@@ -97,19 +96,24 @@ func PostedSurveyHandler(rw http.ResponseWriter, r *http.Request) {
 	var survey Survey
 	if err := json.Unmarshal(body, &survey); err != nil {
 		log.Printf(`event="Failed to parse survey JSON" error="%v"`, err)
-		writeProblemResponse(HTTPProblemResponse{
+		api.WriteProblemResponse(api.Problem{
 			Title:  "Failed to parse survey JSON",
 			Status: http.StatusBadRequest,
 		}, rw)
 		return
 	}
-	log.Printf(`event="Received survey data" tx_id="%v"`, survey.TxID)
+	log.Printf(
+		`event="Received survey data" survey_id="%s" instrument_id="%s" tx_id="%v"`,
+		survey.SurveyID,
+		survey.Collection.InstrumentID,
+		survey.TxID,
+	)
 
 	// Fire to data store
 	log.Printf(`event="Attempting to store survey data" tx_id="%s"`, survey.TxID)
 	if err = storeSurvey(body); err != nil {
 		log.Printf(`event="Failed to store survey JSON" error="%v"`, err)
-		writeProblemResponse(HTTPProblemResponse{
+		api.WriteProblemResponse(api.Problem{
 			Title:  "Failed to store survey JSON",
 			Status: http.StatusBadRequest,
 		}, rw)
@@ -123,7 +127,7 @@ func PostedSurveyHandler(rw http.ResponseWriter, r *http.Request) {
 		// TODO What happens if we fail to publish?
 		//		- Could attempt a few reties?
 		//		- Responsibility should be on calling service to handle and retry
-		writeProblemResponse(HTTPProblemResponse{
+		api.WriteProblemResponse(api.Problem{
 			Title:  "Failed to notify request",
 			Status: http.StatusInternalServerError,
 			Detail: "Unable to route survey receipt notification at this time",
@@ -132,7 +136,6 @@ func PostedSurveyHandler(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	rw.WriteHeader(http.StatusOK)
-
 }
 
 func storeSurvey(data []byte) error {
