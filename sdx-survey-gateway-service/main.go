@@ -118,7 +118,7 @@ func PostedSurveyHandler(rw http.ResponseWriter, r *http.Request) {
 
 	// Notify
 	log.Printf(`event="Attempting to publish notification" tx_id="%s"`, survey.TxID)
-	if err := publishNotification(survey.TxID); err != nil {
+	if err := publishNotification(survey.TxID, "eq", survey.SurveyID, survey.Collection.InstrumentID); err != nil {
 		log.Printf(`event="Failed to publish survey notification event" error="%v"`, err)
 		// TODO What happens if we fail to publish?
 		//		- Could attempt a few reties?
@@ -148,16 +148,13 @@ func storeSurvey(data []byte) error {
 	return nil
 }
 
-func publishNotification(id string) error {
-	if len(id) == 0 {
-		return errors.New("Missing Transaction ID")
-	}
+func publishNotification(id, source, surveyID, instrumentID string) error {
 
 	if rabbitConn == nil {
 		return errors.New("No connection to rabbit")
 	}
 
-	topic := "survey.notify.eq.ukis" // making assumption we're from EQ and it's a UKIS survey
+	topic := fmt.Sprintf("survey.notify.%s.%s.%s", source, surveyID, instrumentID)
 
 	// Get a fresh channel for each publish
 	// TODO do we need to do this? May be a way of reducing the number of

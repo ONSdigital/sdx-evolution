@@ -3,6 +3,8 @@ SDX 2 - Onyx Gazelle
 
 Proof of concept for SDX 2 (codename Onyx Gazelle)
 
+> _(!) This is pure poc and does not contain production ready code!_
+
 ## Get Started
 
 ```shell
@@ -12,6 +14,8 @@ $ make docker
 
  - `make` - build binaries for each service
  - `make docker` - run `docker-compose up --build` to create images based on binaries built with `make`
+
+> nb. It may be advantageous if you make changes to queues to remove any existing rabbitmq container used by this docker-compose.
 
 ## Notes
 

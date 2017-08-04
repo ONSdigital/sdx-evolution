@@ -10,19 +10,41 @@ import (
 	"time"
 
 	"github.com/ONSdigital/sdx-onyx-gazelle/lib/rabbit"
+	"github.com/ONSdigital/sdx-onyx-gazelle/lib/redis"
 	"github.com/gorilla/mux"
 	"github.com/streadway/amqp"
 )
 
 var (
-	rabbitConn     *amqp.Connection
-	legacyExchange string
-	notifyExchange string
+	rabbitConn          *amqp.Connection
+	legacyExchange      string
+	legacyDelayExchange string
+	downstreamExchange  string
+	notifyExchange      string
 )
 
+var (
+	redisConn redis.Conn
+)
+
+// Various constants
 const (
-	// Default queue topic
+	// Topic is the default queue topic that we care about
 	Topic = "survey.#"
+
+	// Delay is the amount of time (milliseconds) to delay a message
+	// when we want to defer processing.
+	// The int16 type is required as rabbitmq headers need to be explicitly sized
+	// as int16, int32 or int64 for ints
+	Delay = int16(5000)
+
+	RedisURL = "redis://redis:6379"
+)
+
+// Queues for consumption and publication
+const (
+	WorkQueue  = "sdx.survey.legacy.work"
+	DelayQueue = "sdx.survey.legacy.delay"
 )
 
 func main() {
@@ -45,6 +67,20 @@ func main() {
 	if legacyExchange = os.Getenv("LEGACY_EXCHANGE"); len(legacyExchange) == 0 {
 		log.Fatal(`event="Failed to start - LEGACY_EXCHANGE must be specified"`)
 	}
+	if downstreamExchange = os.Getenv("DOWNSTREAM_EXCHANGE"); len(downstreamExchange) == 0 {
+		log.Fatal(`event="Failed to start - DOWNSTREAM_EXCHANGE must be specified"`)
+	}
+
+	// REDIS CACHE
+
+	redisConn = redis.ConnectWithRetry(RedisURL, time.Second*2)
+	defer redisConn.Close()
+
+	if err := populateInitialSurveyConfig(); err != nil {
+		log.Printf(`event="Redis error" error="%s"`, err)
+	}
+
+	// QUEUES
 
 	rabbitConn = rabbit.ConnectWithRetry(rabbitURI, time.Second*2)
 	defer rabbitConn.Close()
@@ -55,6 +91,8 @@ func main() {
 	}
 	defer cancel()
 
+	// WEBSERVER
+
 	r := mux.NewRouter()
 	r.HandleFunc("/healthcheck", HealthcheckHandler).Methods("GET")
 	http.Handle("/", r)
@@ -64,20 +102,20 @@ func main() {
 func startQueues(conn *amqp.Connection) (func(), error) {
 	var err error
 
-	// Create incoming and outgoing channels
+	// Channel for consuming
 	chIn, err := conn.Channel()
 	if err != nil {
 		log.Printf(`event="Failed to create incoming channel" error="%s"`, err)
 	}
 
+	// Channel for publishing
 	chOut, err := conn.Channel()
 	if err != nil {
 		log.Printf(`event="Failed to create outgoing channel" error="%s"`, err)
 	}
 
 	// Declare the dead letter exchange for the work exchange
-	var deadLetterExchange string
-	if deadLetterExchange, err = rabbit.DeclareDeadLetterExchangeWithDefaults(legacyExchange, chOut); err != nil {
+	if legacyDelayExchange, err = rabbit.DeclareDeadLetterExchangeWithDefaults(legacyExchange, chOut); err != nil {
 		return nil, err
 	}
 
@@ -96,7 +134,14 @@ func startQueues(conn *amqp.Connection) (func(), error) {
 		return nil, err
 	}
 
-	qWork, err := chIn.QueueDeclare("legacy.work", true, false, false, false, nil)
+	// Declare the downstream exchange
+	if err = rabbit.DeclareExchangeWithDefaults(downstreamExchange, chOut); err != nil {
+		return nil, err
+	}
+
+	// The work queue is bound to the legacy exchange and is used to receive
+	// messages for processing.
+	qWork, err := chIn.QueueDeclare(WorkQueue, true, false, false, false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -113,15 +158,16 @@ func startQueues(conn *amqp.Connection) (func(), error) {
 
 	// Start up the delay queue
 	qDelay, err := chOut.QueueDeclare(
-		"legacy.delay",
+		DelayQueue,
 		true,
 		false,
 		false,
 		false,
 		amqp.Table{
 			"x-dead-letter-exchange": legacyExchange,
-			"x-message-ttl":          int16(5000),
-			// "x-dead-letter-routing-key": Topic, // Let the individual publish set this
+			"x-message-ttl":          Delay,
+			// The x-dead-letter-routing-key is set on a per-message basis
+			// as and when it is published to the delay exchange.
 		},
 	)
 	if err != nil {
@@ -129,14 +175,12 @@ func startQueues(conn *amqp.Connection) (func(), error) {
 		return nil, err
 	}
 
-	if err = chOut.QueueBind(qDelay.Name, "survey.#", deadLetterExchange, false, nil); err != nil {
+	if err = chOut.QueueBind(qDelay.Name, "survey.#", legacyDelayExchange, false, nil); err != nil {
 		log.Printf(`event="Failed to bind queue" error="%v"`, err)
 		return nil, err
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-
-	i := 0
 
 	go func(ctx context.Context) {
 		for d := range msgs {
@@ -146,23 +190,70 @@ func startQueues(conn *amqp.Connection) (func(), error) {
 				chOut.Close()
 			default:
 				log.Printf(`event="Legacy router received message" data="%s"`, d.Body)
-				log.Print(`event="RE-PUBLISHING MESSAGE!"`)
 
-				// if err = d.Nack(false, false); err != nil {
-				// 	// TODO How to handle better
-				// 	log.Fatalf(`event="Failed to nack"`)
-				// }
+				// Determine whether we want to process this message
+				// (for now, ack and discard)
+				// or if we want to say "not now" (simulate queue pause)
+				config, err := getSurveyConfig()
+				if err != nil {
+					log.Fatalf(`event="Failed to get survey config" error="%s"`, err) // TODO
+				}
+				log.Println(config.Surveys)
 
-				if err = d.Reject(false); err != nil {
-					log.Fatalf("FAILED TO REJECT MESSAGE %v", err) // TODO
+				// Assuming routing key is survey.notify.<source>.<type>
+				keyParts := strings.Split(d.RoutingKey, ".")
+				// source := keyParts[2]
+				surveyID := keyParts[3]
+				// instrumentID := keyParts[4]
+				log.Printf("This survey is a : %s", surveyID)
+
+				surveyIsActive := false
+
+				// TODO This is assuming the survey config for this survey
+				// 		exists - really it should check and if not found
+				//		should assume it's not active
+				var thisSurvey Survey
+				if val, ok := config.Surveys[surveyID]; ok {
+					thisSurvey = val
+					surveyIsActive = thisSurvey.Active
 				}
 
-				i++
+				if surveyIsActive {
 
-				log.Printf("Routing key is %s", d.RoutingKey)
+					// TOPIC: survey.downstream.<downstream>.<survey_id>
+					downstreamRoutingKey := fmt.Sprintf("survey.downstream.%s.%s", thisSurvey.Downstream, surveyID)
+
+					log.Print(`event="Survey is active - processing"`)
+
+					if err = chOut.Publish(
+						downstreamExchange,
+						downstreamRoutingKey,
+						false,
+						false,
+						amqp.Publishing{
+							ContentType: "text/plain",
+							Body:        d.Body,
+						}); err != nil {
+
+						// TODO How to properly handle error here
+						log.Fatalf(`event="Failed to publish to downstream queue" error="%v"`, err)
+					}
+
+					_ = d.Ack(false)
+					continue
+				}
+
+				log.Print(`event="Survey is INACTIVE - re-queuing"`)
+
+				// Remove the message from the original queue - amqp prefers
+				// a nack() with no requeue over a reject()
+				if err = d.Nack(false, false); err != nil {
+					// TODO How to handle better
+					log.Fatalf(`event="Failed to nack"`)
+				}
 
 				if err = chOut.Publish(
-					deadLetterExchange,
+					legacyDelayExchange,
 					d.RoutingKey,
 					false,
 					false,
@@ -170,8 +261,9 @@ func startQueues(conn *amqp.Connection) (func(), error) {
 						ContentType: "text/plain",
 						Body:        d.Body,
 						Headers: amqp.Table{
-							// 	"x-retry-count":             int16(i),
-							// 	"x-dead-letter-exchange":    legacyExchange,
+							// Re-publish with the original routing key so that
+							// it'll correctly re-route when TTL'd back to the
+							// exchange
 							"x-dead-letter-routing-key": d.RoutingKey,
 						},
 					}); err != nil {
