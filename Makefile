@@ -2,7 +2,7 @@ SUBDIRS := $(wildcard *-service/.)
 
 build: $(SUBDIRS)
 $(SUBDIRS):
-	echo "\nBuild $@"
+	@ echo "\nBuild $@"
 	$(MAKE) -C $@
 
 docker:

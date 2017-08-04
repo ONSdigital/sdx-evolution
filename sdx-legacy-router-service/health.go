@@ -15,6 +15,7 @@ import (
 type health struct {
 	Service      bool               `json:"service"`
 	Dependencies healthDependencies `json:"dependencies"`
+	LastUpdated  string             `json:"last_updated"`
 }
 
 type healthDependencies struct {
@@ -26,7 +27,7 @@ type healthDependencies struct {
 var currentHealth *health
 
 const (
-	healthUpdateInterval = time.Second * 5
+	healthUpdateInterval = time.Minute * 5
 )
 
 // HealthcheckHandler responds to a healthcheck request with the current
@@ -72,6 +73,13 @@ func StartHealthChecking() (func(), error) {
 				return
 			case <-ticker.C:
 				log.Printf(`event="Updating health for service"`)
+				if err := updateHealth(); err != nil {
+					// TODO what do we do when we failed to update health?
+					// 		What should we be reporting if someone requests
+					//		a healthcheck?
+					log.Fatalf(`event="Error updating health" error="%s"`, err)
+					return
+				}
 			}
 		}
 
@@ -84,7 +92,8 @@ func updateHealth() error {
 
 	// Start optermistic
 	cacheStatus := true
-	queueStatus := true
+	queueInStatus := true
+	queueOutStatus := true
 
 	if err := redis.SetWithExpiry("sdx-legacy-router-healthcheck", "ok", int16(1), redisConn); err != nil {
 		cacheStatus = false
@@ -94,11 +103,13 @@ func updateHealth() error {
 	// 		via registering something on NotifyClose()?
 
 	currentHealth = &health{
-		Service: cacheStatus && queueStatus,
+		Service: cacheStatus && queueInStatus && queueOutStatus,
 		Dependencies: healthDependencies{
-			Cache: cacheStatus,
-			Queue: queueStatus,
+			Cache:         cacheStatus,
+			QueueIncoming: queueInStatus,
+			QueueOutgoing: queueOutStatus,
 		},
+		LastUpdated: time.Now().String(),
 	}
 	return nil
 }
