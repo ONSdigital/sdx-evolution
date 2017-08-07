@@ -14,4 +14,4 @@ Expects the following environment to be set:
 | --------------------- | ------------------------------------ | -------------------------------------------------------- |
 | PORT                  | `"5000"`                             | String describing the port on which to start the service |
 | RABBIT_URL            | `"amqp://rabbit:rabbit@rabbit:5762"` | Url on which to connect to a rabbitmq instance. Includes `amqp://` protocol |
-| NOTIFICATION_EXCHANGE | `survey_notify`                      | Name of rabbit exchange to publish notifications to |
+| NOTIFICATION_EXCHANGE | `survey_notify`                      | Name of rabbit exchange to receive notifications from |
