@@ -1,6 +1,10 @@
 version: '3'
 services:
 
+  # NB. This compose can be used to spin up gateway in isolation - it won't
+  #     do much without the other services but can be used to test basic
+  #     functionality and stop signals etc.
+
   # BACKING SERVICES ============================
 
   # RabbitMQ
@@ -29,8 +33,6 @@ services:
       - "STORE_URL=http://store:5000"
     networks:
       - "sdx2"
-  
-
 
 # NETWORKS ======================================
 

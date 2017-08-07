@@ -25,6 +25,12 @@ Other points that aren't addressed yet but need to be:
 
 ## Notes
 
+### Verboseness
+
+The inline commenting of the services here is intentionally excessive to explain
+decisions and operation to one not so familiar with the new services and Go
+in general.
+
 ### Completeness
 
 This POC is not designed in _any way to be production ready_ and has (likely) many

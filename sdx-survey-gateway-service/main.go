@@ -9,26 +9,29 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/ONSdigital/sdx-onyx-gazelle/lib/api"
 	"github.com/ONSdigital/sdx-onyx-gazelle/lib/rabbit"
 	"github.com/ONSdigital/sdx-onyx-gazelle/lib/signals"
+	"github.com/ONSdigital/sdx-onyx-gazelle/sdx-survey-gateway-service/config"
 
 	"github.com/gorilla/mux"
 	"github.com/streadway/amqp"
 )
 
 var (
-	rabbitConn     *amqp.Connection
-	notifyExchange string
-	storeURL       string
+	rabbitConn *amqp.Connection
 )
 
 func main() {
 
+	config.Load()
+
+	// Set up the signal handler to watch for SIGTERM and SIGINT signals so we
+	// can at least attempt to gracefully shut down before the PaaS/docker etc
+	// running us unceremoneously kills us with a SIGKILL.
 	cancelSigWatch := signals.HandleFunc(
 		func(sig os.Signal) {
 			log.Printf(`event="Shutting down" signal="%s"`, sig.String())
@@ -44,38 +47,16 @@ func main() {
 	)
 	defer cancelSigWatch()
 
-	var port string
-	if port = os.Getenv("PORT"); len(port) == 0 {
-		log.Fatal(`event="Failed to start - Must supply PORT environment variable"`)
-	}
-
-	if storeURL = os.Getenv("STORE_URL"); len(storeURL) == 0 {
-		log.Fatal(`event="Failed to start - Must supply STORE_URL environment variable"`)
-	}
-
-	var rabbitURI string
-	if rabbitURI = os.Getenv("RABBIT_URL"); len(rabbitURI) == 0 {
-		log.Fatal(`event="Failed to start - Must supply RABBIT_URL environment variable"`)
-	}
-	if !strings.HasPrefix(rabbitURI, "amqp://") {
-		log.Fatal(`event="Failed to start - RABBIT_URL must contain amqp:// prefix`)
-	}
-
-	if notifyExchange = os.Getenv("NOTIFICATION_EXCHANGE"); len(notifyExchange) == 0 {
-		log.Fatal(`event="Failed to start - NOTIFICATION_EXCHANGE must be specified"`)
-	}
-
-	// Set up the connection to the RabbitMQ server
-	rabbitConn = rabbit.ConnectWithRetry(rabbitURI, time.Second*2)
+	// RabbitMQ
+	rabbitConn = rabbit.ConnectWithRetry(config.C["RABBIT_URL"], time.Second*2)
 	defer rabbitConn.Close()
 
+	// Webserver
 	r := mux.NewRouter()
-
 	r.HandleFunc("/healthcheck", HealthcheckHandler).Methods("GET")
 	r.HandleFunc("/survey", PostedSurveyHandler).Methods("POST")
-
 	http.Handle("/", r)
-	log.Print(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
+	log.Print(http.ListenAndServe(fmt.Sprintf(":%s", config.C["PORT"]), nil))
 }
 
 // PostedSurveyHandler takes posted survey data (encrypted) and processes it
@@ -109,8 +90,6 @@ func PostedSurveyHandler(rw http.ResponseWriter, r *http.Request) {
 	// we then go on to:
 	//	- store the survey into the datastore (via service)
 	// 	- place a notification of the event onto the notify exchange
-
-	// Unmarshall the JSON body data
 	var survey Survey
 	if err := json.Unmarshal(body, &survey); err != nil {
 		log.Printf(`event="Failed to parse survey JSON" error="%v"`, err)
@@ -157,7 +136,8 @@ func PostedSurveyHandler(rw http.ResponseWriter, r *http.Request) {
 }
 
 func storeSurvey(data []byte) error {
-	resp, err := http.Post(storeURL+"/survey", "application/json", bytes.NewBuffer(data))
+	log.Printf(`event="Attempting to store" store="%s"`, config.C["STORE_URL"])
+	resp, err := http.Post(config.C["STORE_URL"]+"/survey", "application/json", bytes.NewBuffer(data))
 	if err != nil {
 		return err
 	}
@@ -186,12 +166,12 @@ func publishNotification(id, source, surveyID, instrumentID string) error {
 	}
 	defer ch.Close()
 
-	if err = rabbit.DeclareExchangeWithDefaults(notifyExchange, ch); err != nil {
-		log.Fatalf(`event="Failed to declare exchange" exchange="%s" error="%v"`, notifyExchange, err)
+	if err = rabbit.DeclareExchangeWithDefaults(config.C["NOTIFICATION_EXCHANGE"], ch); err != nil {
+		log.Fatalf(`event="Failed to declare exchange" exchange="%s" error="%v"`, config.C["NOTIFICATION_EXCHANGE"], err)
 	}
 
 	if err = ch.Publish(
-		notifyExchange,
+		config.C["NOTIFICATION_EXCHANGE"],
 		topic,
 		false,
 		false,

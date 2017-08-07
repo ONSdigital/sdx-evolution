@@ -1,3 +1,4 @@
+// Package signals provides convenience functions for dealing with system signals
 package signals
 
 import (
@@ -9,6 +10,7 @@ import (
 
 // HandleFunc registers a handler to be run in the event of a given set of
 // signals being received by the process.
+// It returns a cancel context function to allow termination of the go routine.
 func HandleFunc(handler func(os.Signal), sigsToHandle ...os.Signal) func() {
 	ctx, cancel := context.WithCancel(context.Background())
 

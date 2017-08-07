@@ -7,72 +7,66 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/ONSdigital/sdx-onyx-gazelle/lib/rabbit"
 	"github.com/ONSdigital/sdx-onyx-gazelle/lib/redis"
+	"github.com/ONSdigital/sdx-onyx-gazelle/lib/signals"
+	"github.com/ONSdigital/sdx-onyx-gazelle/sdx-legacy-router-service/config"
 	"github.com/gorilla/mux"
 	"github.com/streadway/amqp"
 )
 
 var (
-	rabbitConn          *amqp.Connection
-	legacyExchange      string
-	legacyDelayExchange string
-	downstreamExchange  string
-	notifyExchange      string
-)
-
-var (
-	redisConn redis.Conn
+	rabbitConn *amqp.Connection
+	redisConn  redis.Conn
 )
 
 // Various constants
 const (
-	// Topic is the default queue topic that we care about
-	Topic = "survey.#"
-
 	// Delay is the amount of time (milliseconds) to delay a message
 	// when we want to defer processing.
 	// The int16 type is required as rabbitmq headers need to be explicitly sized
 	// as int16, int32 or int64 for ints
-	Delay = int16(5000)
+	delay = int16(5000)
 
 	RedisURL = "redis://redis:6379"
 )
 
-// Queues for consumption and publication
+// Queues and topics
 const (
-	WorkQueue  = "sdx.survey.legacy.work"
-	DelayQueue = "sdx.survey.legacy.delay"
+	workQueue  = "sdx.survey.legacy.work"
+	delayQueue = "sdx.survey.legacy.delay"
+
+	workQueueTopic  = "survey.#"
+	delayQueueTopic = "survey.#"
 )
 
 func main() {
-	var port string
-	if port = os.Getenv("PORT"); len(port) == 0 {
-		log.Fatal(`event="Failed to start - Must supply PORT environment variable"`)
-	}
 
-	var rabbitURI string
-	if rabbitURI = os.Getenv("RABBIT_URL"); len(rabbitURI) == 0 {
-		log.Fatal(`event="Failed to start - Must supply RABBIT_URL environment variable"`)
-	}
-	if !strings.HasPrefix(rabbitURI, "amqp://") {
-		log.Fatal(`event="Failed to start - RABBIT_URL must contain amqp:// prefix`)
-	}
+	config.Load()
 
-	if notifyExchange = os.Getenv("NOTIFICATION_EXCHANGE"); len(notifyExchange) == 0 {
-		log.Fatal(`event="Failed to start - NOTIFICATION_EXCHANGE must be specified"`)
-	}
-	if legacyExchange = os.Getenv("LEGACY_EXCHANGE"); len(legacyExchange) == 0 {
-		log.Fatal(`event="Failed to start - LEGACY_EXCHANGE must be specified"`)
-	}
-	if downstreamExchange = os.Getenv("DOWNSTREAM_EXCHANGE"); len(downstreamExchange) == 0 {
-		log.Fatal(`event="Failed to start - DOWNSTREAM_EXCHANGE must be specified"`)
-	}
+	cancelSigWatch := signals.HandleFunc(
+		func(sig os.Signal) {
+			log.Printf(`event="Shutting down" signal="%s"`, sig.String())
+			if rabbitConn != nil {
+				log.Printf(`event="Closing rabbit connection"`)
+				rabbitConn.Close()
+			}
+			if redisConn != nil {
+				log.Printf(`event="Closing redis connection"`)
+				redisConn.Close()
+			}
+			log.Print(`event="Exiting"`)
+			os.Exit(0)
+		},
+		syscall.SIGTERM,
+		syscall.SIGINT,
+	)
+	defer cancelSigWatch()
 
-	// REDIS CACHE
-
+	// Cache (Redis)
 	redisConn = redis.ConnectWithRetry(RedisURL, time.Second*2)
 	defer redisConn.Close()
 
@@ -80,9 +74,8 @@ func main() {
 		log.Printf(`event="Redis error" error="%s"`, err)
 	}
 
-	// QUEUES
-
-	rabbitConn = rabbit.ConnectWithRetry(rabbitURI, time.Second*2)
+	// RabbitMQ
+	rabbitConn = rabbit.ConnectWithRetry(config.C["RABBIT_URL"], time.Second*2)
 	defer rabbitConn.Close()
 
 	cancel, err := startQueues(rabbitConn)
@@ -91,8 +84,7 @@ func main() {
 	}
 	defer cancel()
 
-	// WEBSERVER
-
+	// Webserver
 	healthCheckCancel, err := StartHealthChecking()
 	if err != nil {
 		log.Fatalf(`event="Failed to start - can't set health" error="%s"`, err)
@@ -102,7 +94,7 @@ func main() {
 	r := mux.NewRouter()
 	r.HandleFunc("/healthcheck", HealthcheckHandler).Methods("GET")
 	http.Handle("/", r)
-	log.Print(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
+	log.Print(http.ListenAndServe(fmt.Sprintf(":%s", config.C["PORT"]), nil))
 }
 
 func startQueues(conn *amqp.Connection) (func(), error) {
@@ -121,38 +113,45 @@ func startQueues(conn *amqp.Connection) (func(), error) {
 	}
 
 	// Declare the dead letter exchange for the work exchange
-	if legacyDelayExchange, err = rabbit.DeclareDeadLetterExchangeWithDefaults(legacyExchange, chOut); err != nil {
+	var legacyDelayExchange string
+	if legacyDelayExchange, err = rabbit.DeclareDeadLetterExchangeWithDefaults(config.C["LEGACY_EXCHANGE"], chOut); err != nil {
 		return nil, err
 	}
 
 	// Declare the work exchange + incoming queue
 	// This binds back to the notification exchange
-	if err = rabbit.DeclareExchangeWithDefaults(legacyExchange, chIn); err != nil {
-		return nil, err
+	for _, e := range []string{"LEGACY_EXCHANGE", "NOTIFICATION_EXCHANGE"} {
+		if err = rabbit.DeclareExchangeWithDefaults(e, chIn); err != nil {
+			log.Printf(`event="Failed to declare exchange" exchange="%s" error="%v"`, e, err)
+			return nil, err
+		}
 	}
+	// if err = rabbit.DeclareExchangeWithDefaults(config.C["LEGACY_EXCHANGE"], chIn); err != nil {
+	// 	return nil, err
+	// }
 
-	if err = rabbit.DeclareExchangeWithDefaults(notifyExchange, chIn); err != nil {
-		return nil, err
-	}
+	// if err = rabbit.DeclareExchangeWithDefaults(config.C["NOTIFICATION_EXCHANGE"], chIn); err != nil {
+	// 	return nil, err
+	// }
 
-	if err := chIn.ExchangeBind(legacyExchange, Topic, notifyExchange, false, nil); err != nil {
+	if err := chIn.ExchangeBind(config.C["LEGACY_EXCHANGE"], workQueueTopic, config.C["NOTIFICATION_EXCHANGE"], false, nil); err != nil {
 		log.Printf(`event="Failed to bind exchanges" error="%v"`, err)
 		return nil, err
 	}
 
 	// Declare the downstream exchange
-	if err = rabbit.DeclareExchangeWithDefaults(downstreamExchange, chOut); err != nil {
+	if err = rabbit.DeclareExchangeWithDefaults(config.C["DOWNSTREAM_EXCHANGE"], chOut); err != nil {
 		return nil, err
 	}
 
 	// The work queue is bound to the legacy exchange and is used to receive
 	// messages for processing.
-	qWork, err := chIn.QueueDeclare(WorkQueue, true, false, false, false, nil)
+	qWork, err := chIn.QueueDeclare(workQueue, true, false, false, false, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = chIn.QueueBind(qWork.Name, Topic, legacyExchange, false, nil); err != nil {
+	if err = chIn.QueueBind(qWork.Name, workQueueTopic, config.C["LEGACY_EXCHANGE"], false, nil); err != nil {
 		return nil, err
 	}
 
@@ -164,14 +163,14 @@ func startQueues(conn *amqp.Connection) (func(), error) {
 
 	// Start up the delay queue
 	qDelay, err := chOut.QueueDeclare(
-		DelayQueue,
+		delayQueue,
 		true,
 		false,
 		false,
 		false,
 		amqp.Table{
-			"x-dead-letter-exchange": legacyExchange,
-			"x-message-ttl":          Delay,
+			"x-dead-letter-exchange": config.C["LEGACY_EXCHANGE"],
+			"x-message-ttl":          delay,
 			// The x-dead-letter-routing-key is set on a per-message basis
 			// as and when it is published to the delay exchange.
 		},
@@ -181,7 +180,7 @@ func startQueues(conn *amqp.Connection) (func(), error) {
 		return nil, err
 	}
 
-	if err = chOut.QueueBind(qDelay.Name, "survey.#", legacyDelayExchange, false, nil); err != nil {
+	if err = chOut.QueueBind(qDelay.Name, delayQueueTopic, legacyDelayExchange, false, nil); err != nil {
 		log.Printf(`event="Failed to bind queue" error="%v"`, err)
 		return nil, err
 	}
@@ -200,26 +199,21 @@ func startQueues(conn *amqp.Connection) (func(), error) {
 				// Determine whether we want to process this message
 				// (for now, ack and discard)
 				// or if we want to say "not now" (simulate queue pause)
-				config, err := getSurveyConfig()
+				surveyConfig, err := getSurveyConfig()
 				if err != nil {
 					log.Fatalf(`event="Failed to get survey config" error="%s"`, err) // TODO
 				}
-				log.Println(config.Surveys)
+				log.Println(surveyConfig.Surveys)
 
 				// Assuming routing key is survey.notify.<source>.<type>
-				keyParts := strings.Split(d.RoutingKey, ".")
-				// source := keyParts[2]
-				surveyID := keyParts[3]
-				// instrumentID := keyParts[4]
-				log.Printf("This survey is a : %s", surveyID)
-
+				surveyID := strings.Split(d.RoutingKey, ".")[3]
 				surveyIsActive := false
 
 				// TODO This is assuming the survey config for this survey
 				// 		exists - really it should check and if not found
 				//		should assume it's not active
 				var thisSurvey Survey
-				if val, ok := config.Surveys[surveyID]; ok {
+				if val, ok := surveyConfig.Surveys[surveyID]; ok {
 					thisSurvey = val
 					surveyIsActive = thisSurvey.Active
 				}
@@ -232,7 +226,7 @@ func startQueues(conn *amqp.Connection) (func(), error) {
 					log.Print(`event="Survey is active - processing"`)
 
 					if err = chOut.Publish(
-						downstreamExchange,
+						config.C["DOWNSTREAM_EXCHANGE"],
 						downstreamRoutingKey,
 						false,
 						false,
