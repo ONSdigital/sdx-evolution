@@ -75,6 +75,22 @@ services:
     environment:
       - "PORT=5000"
 
+  # ---- Downstream ----
+
+  commonsoftware:
+    build: ./sdx-commonsoftware-service
+    networks:
+      - "sdx2"
+    ports:
+      - "8005:5000"
+    depends_on:
+      - "rabbit"
+      - "legacy_router"
+    env_file:
+      - env/rabbit.env
+    environment:
+      - "PORT=5000"
+
 # NETWORKS ======================================
 
 networks:
