@@ -1,0 +1,39 @@
+version: '3'
+services:
+
+  # BACKING SERVICES ============================
+
+  # RabbitMQ
+  rabbit:
+    image: rabbitmq:3-management
+    env_file:
+      - ../env/rabbit.env
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - sdx2
+
+  # APPLICATION SERVICES ========================
+
+  gateway:
+    build: .
+    ports:
+      - "8001:5000"
+    depends_on:
+      - "rabbit"
+    env_file:
+      - ../env/rabbit.env
+    environment:
+      - "PORT=5000"
+      - "STORE_URL=http://store:5000"
+    networks:
+      - "sdx2"
+  
+
+
+# NETWORKS ======================================
+
+networks:
+  sdx2:
+    driver: bridge

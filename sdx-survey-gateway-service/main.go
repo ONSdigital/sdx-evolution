@@ -10,10 +10,12 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/ONSdigital/sdx-onyx-gazelle/lib/api"
 	"github.com/ONSdigital/sdx-onyx-gazelle/lib/rabbit"
+	"github.com/ONSdigital/sdx-onyx-gazelle/lib/signals"
 
 	"github.com/gorilla/mux"
 	"github.com/streadway/amqp"
@@ -26,6 +28,22 @@ var (
 )
 
 func main() {
+
+	cancelSigWatch := signals.HandleFunc(
+		func(sig os.Signal) {
+			log.Printf(`event="Shutting down" signal="%s"`, sig.String())
+			if rabbitConn != nil {
+				log.Printf(`event="Closing rabbit connection"`)
+				rabbitConn.Close()
+			}
+			log.Print(`event="Exiting"`)
+			os.Exit(0)
+		},
+		syscall.SIGTERM,
+		syscall.SIGINT,
+	)
+	defer cancelSigWatch()
+
 	var port string
 	if port = os.Getenv("PORT"); len(port) == 0 {
 		log.Fatal(`event="Failed to start - Must supply PORT environment variable"`)
@@ -168,17 +186,8 @@ func publishNotification(id, source, surveyID, instrumentID string) error {
 	}
 	defer ch.Close()
 
-	// Declare the exchange to vivify it if it didn't already exist
-	if err = ch.ExchangeDeclare(
-		notifyExchange, // name
-		"topic",        // type
-		true,           // durable
-		false,          // auto-delete
-		false,          // internal
-		false,          // no-wait
-		nil,            // args
-	); err != nil {
-		return err
+	if err = rabbit.DeclareExchangeWithDefaults(notifyExchange, ch); err != nil {
+		log.Fatalf(`event="Failed to declare exchange" exchange="%s" error="%v"`, notifyExchange, err)
 	}
 
 	if err = ch.Publish(

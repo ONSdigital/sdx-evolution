@@ -17,6 +17,12 @@ $ make docker
 
 > nb. It may be advantageous if you make changes to queues to remove any existing rabbitmq container used by this docker-compose.
 
+## Further evolution
+
+Other points that aren't addressed yet but need to be:
+
+ - Graceful shutdown (SIGTERM awareness) for services
+
 ## Notes
 
 ### Completeness
