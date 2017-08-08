@@ -17,11 +17,18 @@ $ make docker
 
 > nb. It may be advantageous if you make changes to queues to remove any existing rabbitmq container used by this docker-compose.
 
+## Highlights
+
+Some things that have been tried here
+
+  - Graceful shutdown (SIGTERM awareness) for services
+  - Delay queues for deferred processing of messages
+
 ## Further evolution
 
 Other points that aren't addressed yet but need to be:
 
- - Graceful shutdown (SIGTERM awareness) for services
+  - Robustness of rabbit connections - correct channel usage and notifiers
 
 ## Notes
 
