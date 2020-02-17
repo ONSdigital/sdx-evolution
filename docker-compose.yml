@@ -25,7 +25,7 @@ services:
   # APPLICATION SERVICES ========================
 
   gateway:
-    build: ./sdx-survey-gateway-service
+    build: ./cmd/sdx-survey-gateway-service
     ports:
       - "8001:5000"
     depends_on:
@@ -40,7 +40,7 @@ services:
       - "sdx2"
   
   store:
-    build: ./sdx-store-service
+    build: ./cmd/sdx-store-service
     networks: 
       - "sdx2"
     ports:
@@ -49,7 +49,7 @@ services:
       - "PORT=5000"
   
   legacy_router:
-    build: ./sdx-legacy-router-service
+    build: ./cmd/sdx-legacy-router-service
     networks:
       - "sdx2"
     ports:
@@ -62,7 +62,7 @@ services:
       - "PORT=5000"
 
   receipt_sink:
-    build: ./receipt-sink-service
+    build: ./cmd/receipt-sink-service
     networks: 
       - "sdx2"
     ports:
@@ -78,7 +78,7 @@ services:
   # ---- Downstream ----
 
   commonsoftware:
-    build: ./sdx-commonsoftware-service
+    build: ./cmd/sdx-commonsoftware-service
     networks:
       - "sdx2"
     ports:

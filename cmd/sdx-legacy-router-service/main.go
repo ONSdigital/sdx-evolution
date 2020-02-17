@@ -10,10 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ONSdigital/sdx-onyx-gazelle/lib/rabbit"
-	"github.com/ONSdigital/sdx-onyx-gazelle/lib/redis"
-	"github.com/ONSdigital/sdx-onyx-gazelle/lib/signals"
-	"github.com/ONSdigital/sdx-onyx-gazelle/sdx-legacy-router-service/config"
+	"github.com/ONSdigital/sdx-evolution/cmd/sdx-legacy-router-service/config"
+	"github.com/ONSdigital/sdx-evolution/internal/rabbit"
+	redis "github.com/ONSdigital/sdx-evolution/internal/redis"
+	"github.com/ONSdigital/sdx-evolution/internal/signals"
+
 	"github.com/gorilla/mux"
 	"github.com/streadway/amqp"
 )

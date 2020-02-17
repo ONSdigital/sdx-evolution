@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ONSdigital/sdx-onyx-gazelle/lib/api"
-	"github.com/ONSdigital/sdx-onyx-gazelle/lib/redis"
+	"github.com/ONSdigital/sdx-evolution/internal/api"
+	redis "github.com/ONSdigital/sdx-evolution/internal/redis"
 )
 
 type health struct {

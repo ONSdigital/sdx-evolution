@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/ONSdigital/sdx-onyx-gazelle/lib/api"
+	"github.com/ONSdigital/sdx-evolution/internal/api"
 	"github.com/gorilla/mux"
 )
 
