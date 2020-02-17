@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/ONSdigital/sdx-onyx-gazelle/lib/redis"
+	redis "github.com/ONSdigital/sdx-evolution/internal/redis"
 )
 
 const (

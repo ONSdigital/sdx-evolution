@@ -1,5 +1,4 @@
-SDX 2 - Onyx Gazelle
-====================
+# SDX 2 - Onyx Gazelle
 
 Proof of concept for SDX 2 (codename Onyx Gazelle)
 
@@ -8,12 +7,12 @@ Proof of concept for SDX 2 (codename Onyx Gazelle)
 ## Get Started
 
 ```shell
-$ make
-$ make docker
+> make
+> make docker
 ```
 
- - `make` - build binaries for each service
- - `make docker` - run `docker-compose up --build` to create images based on binaries built with `make`
+- `make` - build binaries for each service
+- `make docker` - run `docker-compose up --build` to create images based on binaries built with `make`
 
 > nb. It may be advantageous if you make changes to queues to remove any existing rabbitmq container used by this docker-compose.
 
@@ -21,14 +20,14 @@ $ make docker
 
 Some things that have been tried here
 
-  - Graceful shutdown (SIGTERM awareness) for services
-  - Delay queues for deferred processing of messages
+- Graceful shutdown (SIGTERM awareness) for services
+- Delay queues for deferred processing of messages
 
 ## Further evolution
 
 Other points that aren't addressed yet but need to be:
 
-  - Robustness of rabbit connections - correct channel usage and notifiers
+- Robustness of rabbit connections - correct channel usage and notifiers
 
 ## Notes
 

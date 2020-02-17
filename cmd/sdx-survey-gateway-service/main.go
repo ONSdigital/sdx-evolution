@@ -12,10 +12,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ONSdigital/sdx-onyx-gazelle/lib/api"
-	"github.com/ONSdigital/sdx-onyx-gazelle/lib/rabbit"
-	"github.com/ONSdigital/sdx-onyx-gazelle/lib/signals"
-	"github.com/ONSdigital/sdx-onyx-gazelle/sdx-survey-gateway-service/config"
+	"github.com/ONSdigital/sdx-evolution/cmd/sdx-survey-gateway-service/config"
+	"github.com/ONSdigital/sdx-evolution/internal/api"
+	"github.com/ONSdigital/sdx-evolution/internal/rabbit"
+	"github.com/ONSdigital/sdx-evolution/internal/signals"
 
 	"github.com/gorilla/mux"
 	"github.com/streadway/amqp"

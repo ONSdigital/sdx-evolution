@@ -1,4 +1,4 @@
-SUBDIRS := $(wildcard *-service/.)
+SUBDIRS := $(wildcard cmd/*-service/.)
 
 build: $(SUBDIRS)
 $(SUBDIRS):

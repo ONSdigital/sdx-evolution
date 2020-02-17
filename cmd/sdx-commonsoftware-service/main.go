@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ONSdigital/sdx-onyx-gazelle/lib/rabbit"
+	"github.com/ONSdigital/sdx-evolution/internal/rabbit"
 	"github.com/gorilla/mux"
 	"github.com/streadway/amqp"
 )
